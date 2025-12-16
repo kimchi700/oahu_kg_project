@@ -17,7 +17,7 @@ Analyze collaborative networks and shared resources
 Identify community hubs and key connectors
 Understand overlap in community initiatives and participation
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 project/
@@ -36,7 +36,7 @@ project/
 └── README.md              # This file
 ```
 
-## 🚀 Quick Start
+##  Quick Start
 
 1. **Install dependencies**:
    ```bash
@@ -61,7 +61,7 @@ project/
    - API: http://localhost:8000/api
    - API Docs: http://localhost:8000/docs
 
-## 📦 Module Descriptions
+## Module Descriptions
 
 ### `main.py`
 - Entry point for the application
@@ -109,7 +109,7 @@ Place images and other static assets in the `static/` directory. The application
 ### Database
 The application expects Neo4j to be running and accessible via the `data_loader.py` configuration.
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -125,7 +125,7 @@ The application expects Neo4j to be running and accessible via the `data_loader.
           └────────────────┘
 ```
 
-## 🎨 Key Features
+## Key Features
 
 1. **Modular Design**: Each component in its own file
 2. **Single Server**: All frameworks on port 8000
@@ -133,7 +133,7 @@ The application expects Neo4j to be running and accessible via the `data_loader.
 4. **Easy Maintenance**: Update components independently
 5. **Scalable**: Add new pages/routes easily
 
-## 📝 Adding New Features
+##  Adding New Features
 
 ### Add a new FastHTML page:
 1. Edit `pages.py` or create a new page module
@@ -150,11 +150,3 @@ The application expects Neo4j to be running and accessible via the `data_loader.
 2. Update layout or callbacks
 3. Changes take effect on restart
 
-## 🌺 Happy Coding!
-
-This modular structure makes it easier to:
-- Find and modify specific functionality
-- Test individual components
-- Collaborate with team members
-- Scale the application
-- Maintain code quality
