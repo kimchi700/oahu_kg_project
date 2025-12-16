@@ -1,52 +1,198 @@
-# -------------------------------
-# callbacks.py
-# -------------------------------
-from dash import Input, Output, State, dcc, html
-import networkx as nx
-from graph_utils import create_network_graph, create_plotly_graph, create_pyvis_network
-from query_handler import query_relationships
+# callbacks.py - Filter logic for full hybrid application
 
-def register_callbacks(app, df, predicates, nodes):
-    @app.callback([Output('query-response', 'children'), Output('query-response', 'style')], [Input('query-button', 'n_clicks')], [State('query-input', 'value')])
-    def process_query(n_clicks, query_text):
-        if n_clicks == 0 or not query_text:
-            return '', {'display': 'none'}
-        response = query_relationships(query_text, df, nodes)
-        return response, {'display': 'block'}
-
-    @app.callback([Output('knowledge-graph', 'figure'), Output('knowledge-graph', 'style'), Output('pyvis-graph', 'srcDoc'), Output('pyvis-graph', 'style'), Output('graph-stats', 'children')], [Input('layout-dropdown', 'value'), Input('viz-type', 'value'), Input('predicate-dropdown', 'value'), Input('node-dropdown', 'value')])
-    def update_graph(layout_type, viz_type, selected_predicates, selected_nodes):
-        if not selected_predicates: selected_predicates = predicates
-        G = create_network_graph(df, layout_type, selected_predicates, selected_nodes)
-        num_nodes, num_edges = G.number_of_nodes(), G.number_of_edges()
-        density = nx.density(G) if num_nodes > 0 else 0
-        stats = html.Div([html.Div(f'Nodes: {num_nodes}'), html.Div(f'Edges: {num_edges}'), html.Div(f'Density: {density:.3f}')])
-        if viz_type == 'plotly':
-            fig = create_plotly_graph(G, layout_type)
-            return fig, {'display': 'block'}, '', {'display': 'none'}, stats
-        else:
-            net = create_pyvis_network(G)
-            html_string = net.generate_html()
-            return go.Figure(), {'display': 'none'}, html_string, {'display': 'block'}, stats
-
-
-# -------------------------------
-# app.py
-# -------------------------------
-from dash import Dash
 import pandas as pd
-from config import KG_FILE
-from data_loader import load_triples
-from layout import get_layout
-from callbacks import register_callbacks
 
-app = Dash(__name__)
-triples = load_triples(KG_FILE)
-df = pd.DataFrame(triples, columns=['subject', 'predicate', 'object'])
-predicates = sorted(df['predicate'].dropna().unique().astype(str))
-all_nodes = sorted(set(df['subject'].dropna().astype(str)) | set(df['object'].dropna().astype(str)))
-app.layout = get_layout(predicates, all_nodes)
-register_callbacks(app, df, predicates, all_nodes)
 
-if __name__ == '__main__':
-    app.run(debug=True, port=8050)
+def filter_by_node_types(df, communities=None, locations=None, residences=None,
+                         religions=None, education_levels=None, genders=None, 
+                         sexualities=None):
+    """
+    Filter dataframe to show only Community and Main_Community nodes based on their attributes.
+    
+    This function:
+    1. Finds communities that match the selected attribute filters
+    2. Returns only triples where BOTH subject and object are Community or Main_Community nodes
+    3. Filters out all Attribute nodes from the visualization
+    
+    Args:
+        df: DataFrame with columns ['subject', 'subject_label', 'predicate', 'object', 'object_label']
+        communities: List of selected community values
+        locations: List of selected location values (origin)
+        residences: List of selected residence values
+        religions: List of selected religion values
+        education_levels: List of selected education levels
+        genders: List of selected gender values
+        sexualities: List of selected sexuality values
+    
+    Returns:
+        Filtered DataFrame containing only Community-to-Community relationships
+    """
+    filtered_df = df.copy()
+    matching_communities = set()
+    has_filters = False
+    
+    # Filter by community (direct selection)
+    if communities and len(communities) > 0:
+        has_filters = True
+        matching_communities.update(communities)
+    
+    # Filter by location (originally from) - find communities with this attribute
+    if locations and len(locations) > 0:
+        has_filters = True
+        location_communities = set(df[
+            (df['predicate'] == 'ORIGINALLY_FROM') & 
+            (df['object'].isin(locations))
+        ]['subject'].unique())
+        matching_communities.update(location_communities)
+    
+    # Filter by residence (lives in) - find communities with this attribute
+    if residences and len(residences) > 0:
+        has_filters = True
+        residence_communities = set(df[
+            (df['predicate'] == 'LIVES_IN') & 
+            (df['object'].isin(residences))
+        ]['subject'].unique())
+        matching_communities.update(residence_communities)
+    
+    # Filter by religion - find communities with this attribute
+    if religions and len(religions) > 0:
+        has_filters = True
+        religion_communities = set(df[
+            (df['predicate'] == 'HAS_RELIGIOUS_VIEW') & 
+            (df['object'].isin(religions))
+        ]['subject'].unique())
+        matching_communities.update(religion_communities)
+    
+    # Filter by education level - find communities with this attribute
+    if education_levels and len(education_levels) > 0:
+        has_filters = True
+        education_communities = set(df[
+            (df['predicate'] == 'HAS_EDUCATION_LEVEL') & 
+            (df['object'].isin(education_levels))
+        ]['subject'].unique())
+        matching_communities.update(education_communities)
+    
+    # Filter by gender - find communities with this attribute
+    if genders and len(genders) > 0:
+        has_filters = True
+        gender_communities = set(df[
+            (df['predicate'] == 'HAS_THE_GENDER') & 
+            (df['object'].isin(genders))
+        ]['subject'].unique())
+        matching_communities.update(gender_communities)
+    
+    # Filter by sexuality (associated_with LGBTQ) - find communities with this attribute
+    if sexualities and len(sexualities) > 0:
+        has_filters = True
+        sexuality_communities = set(df[
+            (df['predicate'] == 'ASSOCIATED_WITH') & 
+            (df['object'].isin(sexualities))
+        ]['subject'].unique())
+        matching_communities.update(sexuality_communities)
+    
+    # Now filter to only show Community and Main_Community nodes
+    # Only include relationships between Community/Main_Community nodes
+    community_labels = {'Community', 'Main_Community'}
+    
+    if has_filters:
+        # Filter to matching communities AND only Community-to-Community relationships
+        filtered_df = df[
+            (df['subject'].isin(matching_communities) | df['object'].isin(matching_communities)) &
+            (df['subject_label'].isin(community_labels)) &
+            (df['object_label'].isin(community_labels))
+        ]
+    else:
+        # No filters: show all Community-to-Community relationships
+        filtered_df = df[
+            (df['subject_label'].isin(community_labels)) &
+            (df['object_label'].isin(community_labels))
+        ]
+    
+    return filtered_df
+
+
+def get_communities_for_visualization(df):
+    """
+    Extract only Community and Main_Community nodes for visualization.
+    
+    Args:
+        df: DataFrame with node label information
+    
+    Returns:
+        Set of node names that should be visualized
+    """
+    community_labels = {'Community', 'Main_Community'}
+    
+    # Get all nodes that are Community or Main_Community
+    community_subjects = set(df[df['subject_label'].isin(community_labels)]['subject'].unique())
+    community_objects = set(df[df['object_label'].isin(community_labels)]['object'].unique())
+    
+    return community_subjects | community_objects
+
+
+# Optional: Helper function to get filter statistics
+def get_filter_stats(df, filtered_df):
+    """
+    Calculate statistics about how filters affected the data.
+    
+    Args:
+        df: Original DataFrame
+        filtered_df: Filtered DataFrame
+    
+    Returns:
+        Dictionary with statistics
+    """
+    # Only count Community and Main_Community nodes
+    community_labels = {'Community', 'Main_Community'}
+    
+    original_communities = set()
+    if 'subject_label' in df.columns:
+        original_communities.update(df[df['subject_label'].isin(community_labels)]['subject'].unique())
+        original_communities.update(df[df['object_label'].isin(community_labels)]['object'].unique())
+    else:
+        original_communities = set(df['subject'].unique()) | set(df['object'].unique())
+    
+    filtered_communities = set()
+    if 'subject_label' in filtered_df.columns:
+        filtered_communities.update(filtered_df[filtered_df['subject_label'].isin(community_labels)]['subject'].unique())
+        filtered_communities.update(filtered_df[filtered_df['object_label'].isin(community_labels)]['object'].unique())
+    else:
+        filtered_communities = set(filtered_df['subject'].unique()) | set(filtered_df['object'].unique())
+    
+    return {
+        'original_triples': len(df),
+        'filtered_triples': len(filtered_df),
+        'triples_removed': len(df) - len(filtered_df),
+        'original_communities': len(original_communities),
+        'filtered_communities': len(filtered_communities),
+        'communities_removed': len(original_communities) - len(filtered_communities),
+        'reduction_percentage': round((1 - len(filtered_df) / len(df)) * 100, 2) if len(df) > 0 else 0
+    }
+
+
+# Example usage (for testing)
+if __name__ == "__main__":
+    # Test with sample data including node labels
+    sample_data = {
+        'subject': ['Alice', 'Bob', 'Alice', 'Charlie', 'Alice', 'Alice', 'Bob'],
+        'subject_label': ['Community', 'Community', 'Community', 'Community', 'Community', 'Community', 'Community'],
+        'predicate': ['LIVES_IN', 'LIVES_IN', 'HAS_THE_GENDER', 'ALSO_INVOLVED_IN', 'ALSO_INVOLVED_IN', 'ASSOCIATED_WITH', 'ASSOCIATED_WITH'],
+        'object': ['Honolulu', 'Kailua', 'Female', 'Surfing', 'Acroyoga', 'Surfing', 'Acroyoga'],
+        'object_label': ['Attribute', 'Attribute', 'Attribute', 'Community', 'Community', 'Community', 'Community']
+    }
+    
+    df = pd.DataFrame(sample_data)
+    
+    # Test filter - should only show Community-to-Community relationships
+    filtered = filter_by_node_types(
+        df,
+        residences=['Honolulu'],
+        genders=['Female']
+    )
+    
+    print("Original DataFrame:")
+    print(df)
+    print("\nFiltered DataFrame (Community-to-Community only):")
+    print(filtered)
+    print("\nStatistics:")
+    print(get_filter_stats(df, filtered))
