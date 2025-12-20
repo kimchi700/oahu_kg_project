@@ -1,128 +1,243 @@
 """
-filters.py - Filter value extraction utilities
+filters.py - Object-Oriented Filter Management
+Refactored to use FilterManager class
 """
 
 import pandas as pd
+from typing import Dict, List, Set
+from dataclasses import dataclass
+from enum import Enum
 
 
+class PredicateType(Enum):
+    """Enumeration of predicate types for filtering"""
+    COMMUNITY = ['ALSO_INVOLVED_IN', 'ASSOCIATED_WITH']
+    LOCATION = 'ORIGINALLY_FROM'
+    RESIDENCE = 'LIVES_IN'
+    RELIGION = 'HAS_RELIGIOUS_VIEW'
+    EDUCATION = 'HAS_EDUCATION_LEVEL'
+    GENDER = 'HAS_THE_GENDER'
+    SEXUALITY = 'ASSOCIATED_WITH'  # with LGBTQ in object
+
+
+@dataclass
+class FilterValues:
+    """Data class to hold all filter values"""
+    communities: List[str]
+    locations: List[str]
+    residence: List[str]
+    religions: List[str]
+    education_levels: List[str]
+    genders: List[str]
+    sexualities: List[str]
+    
+    def to_dict(self) -> Dict[str, List[str]]:
+        """Convert to dictionary format"""
+        return {
+            'communities': self.communities,
+            'locations': self.locations,
+            'residence': self.residence,
+            'religions': self.religions,
+            'education_levels': self.education_levels,
+            'genders': self.genders,
+            'sexualities': self.sexualities
+        }
+
+
+class FilterManager:
+    """
+    Manages extraction and validation of filter values from knowledge graph data.
+    
+    Responsibilities:
+    - Extract unique values for each filter category
+    - Validate filter values
+    - Provide filter options for UI components
+    """
+    
+    def __init__(self, triples_df: pd.DataFrame):
+        """
+        Initialize FilterManager with triples dataframe.
+        
+        Args:
+            triples_df: DataFrame with subject, predicate, object columns
+        """
+        self.df = triples_df
+        self._filter_values: FilterValues = None
+    
+    def extract_all_filters(self) -> FilterValues:
+        """
+        Extract all filter values from the dataframe.
+        
+        Returns:
+            FilterValues object containing all filter options
+        """
+        self._filter_values = FilterValues(
+            communities=self._extract_communities(),
+            locations=self._extract_locations(),
+            residence=self._extract_residence(),
+            religions=self._extract_religions(),
+            education_levels=self._extract_education_levels(),
+            genders=self._extract_genders(),
+            sexualities=self._extract_sexualities()
+        )
+        return self._filter_values
+    
+    def _extract_communities(self) -> List[str]:
+        """Extract unique community names."""
+        communities: Set[str] = set()
+        
+        # Get communities from relationships
+        for predicate in PredicateType.COMMUNITY.value:
+            matching_rows = self.df[self.df['predicate'] == predicate]
+            communities.update(matching_rows['subject'].dropna().unique())
+        
+        # Get top activity subjects
+        activity_subjects = self.df['subject'].value_counts().head(50).index.tolist()
+        communities.update(activity_subjects)
+        
+        # Filter and sort
+        return self._clean_and_sort(communities)
+    
+    def _extract_locations(self) -> List[str]:
+        """Extract unique location values (Originally From)."""
+        locations: Set[str] = set()
+        matching_rows = self.df[self.df['predicate'] == PredicateType.LOCATION.value]
+        locations.update(matching_rows['object'].dropna().unique())
+        return self._clean_and_sort(locations)
+    
+    def _extract_residence(self) -> List[str]:
+        """Extract unique residence values (Lives In)."""
+        residence: Set[str] = set()
+        matching_rows = self.df[self.df['predicate'] == PredicateType.RESIDENCE.value]
+        residence.update(matching_rows['object'].dropna().unique())
+        return self._clean_and_sort(residence)
+    
+    def _extract_religions(self) -> List[str]:
+        """Extract unique religion values."""
+        matching_rows = self.df[self.df['predicate'] == PredicateType.RELIGION.value]
+        religions = matching_rows['object'].dropna().unique()
+        return self._clean_and_sort(religions)
+    
+    def _extract_education_levels(self) -> List[str]:
+        """Extract unique education level values."""
+        matching_rows = self.df[self.df['predicate'] == PredicateType.EDUCATION.value]
+        education_levels = matching_rows['object'].dropna().unique()
+        return self._clean_and_sort(education_levels)
+    
+    def _extract_genders(self) -> List[str]:
+        """Extract unique gender values."""
+        matching_rows = self.df[self.df['predicate'] == PredicateType.GENDER.value]
+        genders = matching_rows['object'].dropna().unique()
+        return self._clean_and_sort(genders)
+    
+    def _extract_sexualities(self) -> List[str]:
+        """Extract unique sexuality values (LGBTQ-related)."""
+        sexualities: Set[str] = set()
+        lgbtq_mask = (
+            (self.df['predicate'] == PredicateType.SEXUALITY.value) &
+            (self.df['object'].str.contains('LGBTQ', case=False, na=False))
+        )
+        lgbtq_nodes = self.df[lgbtq_mask]['object'].unique()
+        sexualities.update(lgbtq_nodes)
+        return self._clean_and_sort(sexualities)
+    
+    def _clean_and_sort(self, values) -> List[str]:
+        """
+        Clean and sort filter values.
+        
+        Args:
+            values: Set or array of values
+            
+        Returns:
+            Sorted list of valid string values
+        """
+        cleaned = [
+            v for v in values 
+            if isinstance(v, str) and v != 'nan' and v.strip()
+        ]
+        return sorted(cleaned)
+    
+    def get_filter_values(self) -> FilterValues:
+        """
+        Get filter values (extracts if not already done).
+        
+        Returns:
+            FilterValues object
+        """
+        if self._filter_values is None:
+            self.extract_all_filters()
+        return self._filter_values
+    
+    def get_filter_dict(self) -> Dict[str, List[str]]:
+        """
+        Get filter values as dictionary.
+        
+        Returns:
+            Dictionary mapping filter names to value lists
+        """
+        filter_values = self.get_filter_values()
+        return filter_values.to_dict()
+    
+    def validate_filter_values(self, 
+                              filter_type: str, 
+                              values: List[str]) -> List[str]:
+        """
+        Validate that filter values exist in the extracted options.
+        
+        Args:
+            filter_type: Type of filter (e.g., 'communities', 'genders')
+            values: List of values to validate
+            
+        Returns:
+            List of valid values (subset of input)
+        """
+        filter_dict = self.get_filter_dict()
+        
+        if filter_type not in filter_dict:
+            raise ValueError(f"Unknown filter type: {filter_type}")
+        
+        valid_values = set(filter_dict[filter_type])
+        return [v for v in values if v in valid_values]
+    
+    def get_filter_count(self, filter_type: str) -> int:
+        """
+        Get count of available values for a filter type.
+        
+        Args:
+            filter_type: Type of filter
+            
+        Returns:
+            Number of available values
+        """
+        filter_dict = self.get_filter_dict()
+        if filter_type not in filter_dict:
+            return 0
+        return len(filter_dict[filter_type])
+    
+    def get_all_filter_counts(self) -> Dict[str, int]:
+        """
+        Get counts for all filter types.
+        
+        Returns:
+            Dictionary mapping filter types to counts
+        """
+        filter_dict = self.get_filter_dict()
+        return {
+            filter_type: len(values)
+            for filter_type, values in filter_dict.items()
+        }
+
+
+# Backward compatibility: functional interface
 def extract_filter_values(df: pd.DataFrame) -> dict:
     """
-    Extract unique values for each filter category from the dataframe.
-    Only extracts Communities (not Attributes) for the community filter.
-    Extracts Attribute values for all other filters.
+    Legacy function - extracts filter values using FilterManager class.
     
     Args:
-        df: DataFrame with columns including 'subject', 'object', 'predicate',
-            'subject_label', 'object_label'
-    
-    Returns:
-        Dictionary with filter options for each category
-    """
-    
-    # Communities - only get nodes labeled as Community or Main_Community
-    community_predicates = ['ALSO_INVOLVED_IN', 'ASSOCIATED_WITH']
-    communities = set()
-    
-    if 'subject_label' in df.columns:
-        # Get subjects that are Communities from community-related predicates
-        for pred in community_predicates:
-            community_subjects = df[
-                (df['predicate'] == pred) & 
-                (df['subject_label'].isin(['Community', 'Main_Community']))
-            ]['subject'].dropna().unique()
-            communities.update(community_subjects)
-            
-            # Also get objects that are Communities
-            community_objects = df[
-                (df['predicate'] == pred) & 
-                (df['object_label'].isin(['Community', 'Main_Community']))
-            ]['object'].dropna().unique()
-            communities.update(community_objects)
-    else:
-        # Fallback if no label columns
-        for pred in community_predicates:
-            communities.update(df[df['predicate'] == pred]['subject'].dropna().unique())
+        df: DataFrame with triples
         
-        # Add top activity subjects
-        activity_subjects = df['subject'].value_counts().head(50).index.tolist()
-        communities.update(activity_subjects)
-    
-    communities = sorted([c for c in communities if isinstance(c, str) and c != 'nan'])
-    
-    # Locations (Originally From) - get Attribute nodes
-    locations = set()
-    locations.update(df[df['predicate'] == 'ORIGINALLY_FROM']['object'].dropna().unique())
-    locations = sorted([loc for loc in locations if isinstance(loc, str) and loc != 'nan'])
-    
-    # Residence (Lives In) - get Attribute nodes
-    residence = set()
-    residence.update(df[df['predicate'] == 'LIVES_IN']['object'].dropna().unique())
-    residence = sorted([loc for loc in residence if isinstance(loc, str) and loc != 'nan'])
-    
-    # Religions - get Attribute nodes
-    religions = df[df['predicate'] == 'HAS_RELIGIOUS_VIEW']['object'].dropna().unique()
-    religions = sorted([r for r in religions if isinstance(r, str) and r != 'nan'])
-    
-    # Education Levels - get Attribute nodes
-    education_levels = df[df['predicate'] == 'HAS_EDUCATION_LEVEL']['object'].dropna().unique()
-    education_levels = sorted([e for e in education_levels if isinstance(e, str) and e != 'nan'])
-    
-    # Genders - get Attribute nodes
-    genders = df[df['predicate'] == 'HAS_THE_GENDER']['object'].dropna().unique()
-    genders = sorted([g for g in genders if isinstance(g, str) and g != 'nan'])
-    
-    # Sexualities - get from LGBTQ associations
-    sexualities = set()
-    lgbtq_nodes = df[
-        (df['predicate'] == 'ASSOCIATED_WITH') & 
-        (df['object'].str.contains('LGBTQ', case=False, na=False))
-    ]['object'].unique()
-    sexualities.update(lgbtq_nodes)
-    sexualities = sorted([s for s in sexualities if isinstance(s, str) and s != 'nan'])
-    
-    return {
-        'communities': communities,
-        'locations': locations,
-        'residence': residence,
-        'religions': religions,
-        'education_levels': education_levels,
-        'genders': genders,
-        'sexualities': sexualities
-    }
-
-
-def get_node_type_counts(df: pd.DataFrame) -> dict:
-    """
-    Count nodes by their label type.
-    
-    Args:
-        df: DataFrame with node label columns
-    
     Returns:
-        Dictionary with counts for each node type
+        Dictionary of filter values
     """
-    if 'subject_label' not in df.columns or 'object_label' not in df.columns:
-        return {}
-    
-    all_nodes = {}
-    
-    # Count subject nodes
-    for _, row in df.iterrows():
-        node_name = row['subject']
-        node_label = row['subject_label']
-        if node_name not in all_nodes:
-            all_nodes[node_name] = node_label
-    
-    # Count object nodes
-    for _, row in df.iterrows():
-        node_name = row['object']
-        node_label = row['object_label']
-        if node_name not in all_nodes:
-            all_nodes[node_name] = node_label
-    
-    # Aggregate counts by label
-    label_counts = {}
-    for node_label in all_nodes.values():
-        label_counts[node_label] = label_counts.get(node_label, 0) + 1
-    
-    return label_counts
+    manager = FilterManager(df)
+    return manager.get_filter_dict()
