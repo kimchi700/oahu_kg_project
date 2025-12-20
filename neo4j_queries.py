@@ -14,140 +14,375 @@ class Neo4jQueryEngine:
         self.driver.close()
     
     def get_filter_options(self):
-        """Get all available filter values from Neo4j"""
-        with self.driver.session() as session:
-            # Get all unique attribute values by type
-            query = """
-            MATCH (n)
-            WHERE n:Attribute OR n:Community OR n:Main_Community
-            WITH labels(n) as node_labels, n.name as name
-            UNWIND node_labels as label
-            RETURN DISTINCT label, collect(DISTINCT name) as values
-            """
-            result = session.run(query)
-            
-            filter_options = {
-                'communities': [],
-                'locations': [],
-                'residence': [],
-                'religions': [],
-                'education_levels': [],
-                'genders': [],
-                'sexualities': []
-            }
-            
-            for record in result:
-                label = record['label']
-                values = [v for v in record['values'] if v is not None]
-                
-                if label in ['Community', 'Main_Community']:
-                    filter_options['communities'].extend(values)
-                elif label == 'Location':
-                    filter_options['locations'].extend(values)
-                elif label == 'Residence':
-                    filter_options['residence'].extend(values)
-                elif label == 'Religion':
-                    filter_options['religions'].extend(values)
-                elif label == 'Education':
-                    filter_options['education_levels'].extend(values)
-                elif label == 'Gender':
-                    filter_options['genders'].extend(values)
-                elif label == 'Sexuality':
-                    filter_options['sexualities'].extend(values)
-            
-            # Remove duplicates and sort
-            for key in filter_options:
-                filter_options[key] = sorted(list(set(filter_options[key])))
-            
-            return filter_options
+        """Get all available filter values from Neo4j by following relationships"""
     
-    def query_graph_with_filters(self, communities=None, residences=None, locations=None,
-                                  religions=None, education_levels=None, genders=None, 
-                                  sexualities=None):
+        filter_options = {
+            'communities': [
+                'Acroyoga', 'Fire Spinning', 'Art / Vending', 'Surfing',
+                'Slackline / Highline', 'Spiritual (meditations, retreats, etc.)',
+                'Music Production (Djs, light production, etc.)', 'SurfBreak',
+                'Dance (salsa, zouk, hip hop, etc.)', 'Rock Climbing',
+                'Martial Arts', 'Running', 'Hiking', 'Diving', 'Yoga', 'Farming',
+                'Business / Enterpreneurship', 'Poetry', 'Bar Scene'
+            ],
+            'locations': [
+                'Florida', 'Pennsylvania', 'Connecticut', 'Ohio', 'New York',
+                'Michigan', 'Maryland', 'New Jersey', 'Utah', 'Illinois',
+                'California', 'Texas', 'Iowa', 'Delaware', 'Idaho',
+                'Massachusetts', 'Nebraska', 'Hawaii', 'Missouri', 'Wisconsin',
+                'Virginia', 'Colorado', 'Tennessee', 'Nevada'
+            ],
+            'residence': [
+                'Honolulu', 'Central Oahu', 'North Shore', 'East Side', 'West Side'
+            ],
+            'religions': [
+                'Christian', 'Agnostic, Atheist, or non-religious',
+                'Buddhist', 'Spiritual', 'Other'
+            ],
+            'education_levels': [
+                'Bachelor’s degree',
+                'Associates or technical degree',
+                'Graduate or professional degree (MA, MS, MBA, PhD, JD, MD, DDS etc.)',
+                'Prefer not to say',
+                'Some college, but no degree',
+                'High school diploma or GED'
+            ],
+            'genders': ['Female', 'Male', 'Non-binary / third gender'],
+            'sexualities': [
+                'Heterosexual', 'Bisexual', 'Gay',
+                'Pansexual', 'Fluid', 'Prefer not to disclose'
+            ]
+        }
+            
+        return filter_options
+            
+    ################# NEED TO FIX QUERIES HERE 
+    def query_graph_with_filters(
+            self,
+            main_communities=None,
+            communities=None,
+            residences=None,
+            locations=None,
+            religions=None,
+            education_levels=None,
+            genders=None,
+            sexualities=None,
+            connection_types=None,
+            community_scales=None,
+            aloha_spirits=None,
+            hawaiian_cultures=None,
+            us_born=None,
+            country=None,
+            stay_on_island=None,
+            relationship_status=None,
+            age_ranges=None,
+            occupations=None):
+
         """
         Query Neo4j with Cypher filters to get community relationships
         Returns DataFrame with subject, predicate, object, and labels
+        
+        New parameters:
+        - main_communities: Filter by Main_Community nodes
+        - connection_types: Filter by relationship type (ASSOCIATED_WITH, ALSO_INVOLVED_IN, HAS_MAIN_COMMUNITY)
+        - community_scales: Filter by LEVEL_OF_INVOLVEMENT
+        - aloha_spirits: Filter by FEELS_ALOHA_SPIRIT
+        - hawaiian_cultures: Filter by HAWAIIAN_CULTURE_KNOWLEDGE
+        - us_born: Filter by US_BORN_STATUS
+        - countries: Filter by FROM_COUNTRY
+        - stay_intentions: Filter by PLANS_TO_STAY
+        - relationship_statuses: Filter by RELATIONSHIP_STATUS
+        - ages: Filter by IN_AGE_RANGE_OF
+        - occupations: Filter by HAS_OCCUPATION
         """
         with self.driver.session() as session:
             # Build WHERE clauses dynamically based on filters
             where_clauses = []
             params = {}
             
-            # Community filter
+            # Determine relationship types to filter (connection_types)
+            # Default: include ALL community connection types if not specified
+            if connection_types:
+                relationship_types = connection_types
+            else:
+                # Default: show ALL community-to-community relationship types
+                relationship_types = ['HAS_MAIN_COMMUNITY', 'ASSOCIATED_WITH', 'ALSO_INVOLVED_IN']
+            
+            params['relationship_types'] = relationship_types
+            
+            # Main Community filter (for Main_Community nodes specifically)
+            if main_communities:
+                where_clauses.append("(c1:Main_Community AND c1.name IN $main_communities)")
+                params['main_communities'] = main_communities
+            
+            # Community filter (for any Community or Main_Community)
             if communities:
                 where_clauses.append("(c1.name IN $communities OR c2.name IN $communities)")
                 params['communities'] = communities
             
             # Attribute filters - find communities that have these attributes
+# Attribute filters - find communities that have these attributes
             attribute_filters = []
             
             if residences:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:has_residence|lives_in]->(r:Residence)
-                        WHERE r.name IN $residences
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:LIVES_IN]->(b)
+                            WHERE b.name IN $residences
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (b)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE b.name IN $residences
+                        }
+                    )
                 """)
                 params['residences'] = residences
             
             if locations:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:originally_from]->(l:Location)
-                        WHERE l.name IN $locations
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:ORIGINALLY_FROM]->(l)
+                            WHERE l.name IN $locations
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (l)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE l.name IN $locations
+                        }
+                    )
                 """)
                 params['locations'] = locations
             
             if religions:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:has_religious_view]->(rel:Religion)
-                        WHERE rel.name IN $religions
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAS_RELIGIOUS_VIEW]->(attr)
+                            WHERE attr.name IN $religions
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $religions
+                        }
+                    )
                 """)
                 params['religions'] = religions
             
             if education_levels:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:has_education_level]->(e:Education)
-                        WHERE e.name IN $education_levels
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAS_EDUCATION_LEVEL]->(attr)
+                            WHERE attr.name IN $education_levels
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $education_levels
+                        }
+                    )
                 """)
                 params['education_levels'] = education_levels
             
             if genders:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:has_the_gender]->(g:Gender)
-                        WHERE g.name IN $genders
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAS_THE_GENDER]->(attr)
+                            WHERE attr.name IN $genders
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $genders
+                        }
+                    )
                 """)
                 params['genders'] = genders
             
             if sexualities:
                 attribute_filters.append("""
-                    EXISTS {
-                        MATCH (c1)-[:has_sexuality]->(s:Sexuality)
-                        WHERE s.name IN $sexualities
-                    }
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAS_SEXUALITY]->(attr)
+                            WHERE attr.name IN $sexualities
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $sexualities
+                        }
+                    )
                 """)
                 params['sexualities'] = sexualities
+            
+            # ---- NEW ATTRIBUTE FILTERS (corrected names) ----
+            
+            if community_scales:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:LEVEL_OF_INVOLVEMENT]->(attr)
+                            WHERE attr.name IN $community_scales
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $community_scales
+                        }
+                    )
+                """)
+                params['community_scales'] = community_scales
+            
+            if aloha_spirits:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:FEELS_ALOHA_SPIRIT]->(attr)
+                            WHERE attr.name IN $aloha_spirits
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $aloha_spirits
+                        }
+                    )
+                """)
+                params['aloha_spirits'] = aloha_spirits
+            
+            if hawaiian_cultures:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAWAIIAN_CULTURE_KNOWLEDGE]->(attr)
+                            WHERE attr.name IN $hawaiian_cultures
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $hawaiian_cultures
+                        }
+                    )
+                """)
+                params['hawaiian_cultures'] = hawaiian_cultures
+            
+            if us_born:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:US_BORN_STATUS]->(attr)
+                            WHERE attr.name IN $us_born
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $us_born
+                        }
+                    )
+                """)
+                params['us_born'] = us_born
+            
+            if country:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:FROM_COUNTRY]->(attr)
+                            WHERE attr.name IN $country
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $country
+                        }
+                    )
+                """)
+                params['country'] = country
+            
+            if stay_on_island:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:PLANS_TO_STAY]->(attr)
+                            WHERE attr.name IN $stay_on_island
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $stay_on_island
+                        }
+                    )
+                """)
+                params['stay_on_island'] = stay_on_island
+            
+            if relationship_status:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:RELATIONSHIP_STATUS]->(attr)
+                            WHERE attr.name IN $relationship_status
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $relationship_status
+                        }
+                    )
+                """)
+                params['relationship_status'] = relationship_status
+            
+            if age_ranges:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:IN_AGE_RANGE_OF]->(attr)
+                            WHERE attr.name IN $age_ranges
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $age_ranges
+                        }
+                    )
+                """)
+                params['age_ranges'] = age_ranges
+            
+            if occupations:
+                attribute_filters.append("""
+                    (
+                        EXISTS {
+                            MATCH (c1)-[:HAS_OCCUPATION]->(attr)
+                            WHERE attr.name IN $occupations
+                        }
+                        OR
+                        EXISTS {
+                            MATCH (attr)-[:HAS_MAIN_COMMUNITY]->(c1)
+                            WHERE attr.name IN $occupations
+                        }
+                    )
+                """)
+                params['occupations'] = occupations
+
             
             # Combine all attribute filters with OR (any matching attribute)
             if attribute_filters:
                 where_clauses.append("(" + " OR ".join(attribute_filters) + ")")
             
-            # Build the main query
-            where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            
+            # Build additional WHERE conditions (use AND to append to existing WHERE)
+            additional_where = ""
+            if where_clauses:
+                additional_where = "AND " + " AND ".join(where_clauses)
+
+            ### Updated to include ALL relationship types by default and filter on node types
             query = f"""
             MATCH (c1)-[r]->(c2)
             WHERE (c1:Community OR c1:Main_Community) 
               AND (c2:Community OR c2:Main_Community)
-              AND type(r) IN ['also_involved_in', 'associated_with']
-            {where_clause}
+              AND type(r) IN $relationship_types
+              {additional_where}
             RETURN 
                 c1.name as subject,
                 labels(c1) as subject_labels,
@@ -155,7 +390,8 @@ class Neo4jQueryEngine:
                 c2.name as object,
                 labels(c2) as object_labels
             """
-            
+
+            print(query)
             result = session.run(query, params)
             
             # Convert to DataFrame
@@ -218,18 +454,32 @@ class Neo4jQueryEngine:
             
             return attributes
     
-    def get_graph_statistics(self, communities=None, residences=None, locations=None,
+    def get_graph_statistics(self, main_communities=None, communities=None, residences=None, locations=None,
                             religions=None, education_levels=None, genders=None, 
-                            sexualities=None):
+                            sexualities=None, connection_types=None, community_scales=None,
+                            aloha_spirits=None, hawaiian_cultures=None, us_born=None,
+                            countries=None, stay_intentions=None, relationship_statuses=None,
+                            ages=None, occupations=None):
         """Get statistics about the filtered graph"""
         df = self.query_graph_with_filters(
+            main_communities=main_communities,
             communities=communities,
             residences=residences,
             locations=locations,
             religions=religions,
             education_levels=education_levels,
             genders=genders,
-            sexualities=sexualities
+            sexualities=sexualities,
+            connection_types=connection_types,
+            community_scales=community_scales,
+            aloha_spirits=aloha_spirits,
+            hawaiian_cultures=hawaiian_cultures,
+            us_born=us_born,
+            countries=countries,
+            stay_intentions=stay_intentions,
+            relationship_statuses=relationship_statuses,
+            ages=ages,
+            occupations=occupations
         )
         
         stats = {

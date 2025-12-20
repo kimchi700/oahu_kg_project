@@ -1,135 +1,170 @@
-from __future__ import annotations
-from pydantic import BaseModel, Field
-from typing import Any, Dict, ClassVar, Optional, Union
-from neo4j import Driver
+# graph_models.py
+"""
+Pydantic-based graph data models for Knowledge Graph ingestion.
+
+These models:
+- Validate node and relationship data
+- Infer node labels based on predicate semantics
+- Produce Neo4j-ready triples
+"""
+
+from typing import Optional, Tuple, Literal
+from pydantic import BaseModel, Field, validator
 
 
-class NodeModel(BaseModel):
-    """Base class for all node types in the knowledge graph"""
-    primary_key: ClassVar[str] = "name"
-    label: ClassVar[Optional[str]] = None
+# --------------------------------------------------
+# Node Models
+# --------------------------------------------------
 
-    name: str
+class Node(BaseModel):
+    name: str = Field(..., description="Node display name")
+    label: Literal["Community", "Main_Community", "Attribute"]
 
-    def get_label(self) -> str:
-        return self.label or self.__class__.__name__
+    class Config:
+        frozen = True
 
-    def pk_value(self):
-        return getattr(self, self.primary_key)
 
-    def to_properties(self) -> Dict[str, Any]:
-        return self.model_dump(exclude={self.primary_key})
+class Community(Node):
+    label: Literal["Community"] = "Community"
 
-    def merge(self, driver: Driver):
-        """Create or update this node in Neo4j"""
-        cypher = f"""
-        MERGE (n:{self.get_label()} {{{self.primary_key}: $pk}})
-        SET n += $props
+
+class MainCommunity(Node):
+    label: Literal["Main_Community"] = "Main_Community"
+
+
+class Attribute(Node):
+    label: Literal["Attribute"] = "Attribute"
+
+
+# --------------------------------------------------
+# Relationship Model
+# --------------------------------------------------
+
+class Relationship(BaseModel):
+    subject: Node
+    predicate: str
+    object: Node
+
+    @validator("predicate")
+    def normalize_predicate(cls, v: str) -> str:
+        return v.replace(" ", "_").upper()
+
+    def to_triple(self) -> Tuple[str, str, str]:
         """
-        params = {
-            "pk": self.pk_value(),
-            "props": self.to_properties()
-        }
-
-        with driver.session() as session:
-            session.run(cypher, params)
-
-
-class RelationshipModel(BaseModel):
-    """Base class for all relationship types in the knowledge graph"""
-    rel_type: ClassVar[Optional[str]] = None
-
-    def get_rel_type(self):
-        return self.rel_type or self.__class__.__name__.upper()
-
-    def connect(self, driver: Driver, a: NodeModel, b: NodeModel):
-        """Create or update this relationship between two nodes"""
-        cypher = f"""
-        MATCH (x:{a.get_label()} {{name: $a_name}})
-        MATCH (y:{b.get_label()} {{name: $b_name}})
-        MERGE (x)-[r:{self.get_rel_type()}]->(y)
-        SET r += $props
+        Neo4j-ready triple
         """
+        return (
+            self.subject.name,
+            self.predicate,
+            self.object.name
+        )
 
-        with driver.session() as session:
-            session.run(cypher, {
-                "a_name": a.name,
-                "b_name": b.name,
-                "props": self.model_dump()
-            })
-
-
-# Specific Node Models
-class Person(NodeModel):
-    label: ClassVar[str] = "Person"
-    name: str
-    gender: Optional[str] = None
-    education_level: Optional[str] = None
-    religious_view: Optional[str] = None
+    class Config:
+        frozen = True
 
 
-class Community(NodeModel):
-    label: ClassVar[str] = "Community"
-    name: str
-    description: Optional[str] = None
+# --------------------------------------------------
+# Predicate Semantics (mirrors loader)
+# --------------------------------------------------
+
+ATTRIBUTE_EDGES = {
+    "FEELS_ALOHA_SPIRIT",
+    "HAS_EDUCATION_LEVEL",
+    "HAS_RELIGIOUS_VIEW",
+    "HAS_THE_GENDER",
+    "HAWAIIAN_CULTURE_KNOWLEDGE",
+    "LIVES_IN",
+    "ORIGINALLY_FROM",
+    "US_BORN_STATUS",
+    "FROM_COUNTRY",
+    "YEARS_ON_ISLAND",
+    "PLANS_TO_STAY",
+    "HAS_SEXUALITY",
+    "RELATIONSHIP_STATUS",
+    "IN_AGE_RANGE_OF",
+    "HAS_OCCUPATION",
+    "LEVEL_OF_INVOLVEMENT",
+}
+
+COMMUNITY_EDGES = {
+    "ALSO_INVOLVED_IN",
+    "ASSOCIATED_WITH",
+}
+
+MAIN_COMMUNITY_EDGE = "HAS_MAIN_COMMUNITY"
 
 
-class Location(NodeModel):
-    label: ClassVar[str] = "Location"
-    name: str
-    region: Optional[str] = None
+# --------------------------------------------------
+# Label Inference Logic
+# --------------------------------------------------
+
+def infer_nodes(
+    subject: str,
+    predicate: str,
+    obj: str,
+    previous_predicate: Optional[str] = None
+) -> Tuple[Node, Node]:
+    """
+    Infer node labels based on relationship semantics.
+    Matches logic in load_kg_from_file.py
+    """
+    pred = predicate.replace(" ", "_").upper()
+
+    # Community → Attribute
+    if pred in ATTRIBUTE_EDGES:
+        return (
+            Community(name=subject),
+            Attribute(name=str(obj))
+        )
+
+    # Community → Community
+    if pred in COMMUNITY_EDGES:
+        return (
+            Community(name=subject),
+            Community(name=obj)
+        )
+
+    # HAS_MAIN_COMMUNITY logic
+    if MAIN_COMMUNITY_EDGE in pred:
+        if previous_predicate and previous_predicate.upper() in COMMUNITY_EDGES:
+            return (
+                Community(name=subject),
+                MainCommunity(name=obj)
+            )
+        return (
+            Attribute(name=subject),
+            MainCommunity(name=obj)
+        )
+
+    # Fallback
+    return (
+        Community(name=subject),
+        Attribute(name=str(obj))
+    )
 
 
-class Religion(NodeModel):
-    label: ClassVar[str] = "Religion"
-    name: str
+# --------------------------------------------------
+# Factory Function (Loader-facing)
+# --------------------------------------------------
 
+def build_relationship(
+    subject: str,
+    predicate: str,
+    obj: str,
+    previous_predicate: Optional[str] = None
+) -> Relationship:
+    """
+    Build a validated Relationship object from raw triple data.
+    """
+    subj_node, obj_node = infer_nodes(
+        subject=subject,
+        predicate=predicate,
+        obj=obj,
+        previous_predicate=previous_predicate
+    )
 
-class EducationLevel(NodeModel):
-    label: ClassVar[str] = "EducationLevel"
-    name: str
-
-
-class Gender(NodeModel):
-    label: ClassVar[str] = "Gender"
-    name: str
-
-
-class Sexuality(NodeModel):
-    label: ClassVar[str] = "Sexuality"
-    name: str
-
-
-# Specific Relationship Models
-class AlsoInvolvedIn(RelationshipModel):
-    rel_type: ClassVar[str] = "ALSO_INVOLVED_IN"
-    level: Optional[str] = None
-
-
-class AssociatedWith(RelationshipModel):
-    rel_type: ClassVar[str] = "ASSOCIATED_WITH"
-
-
-class LivesIn(RelationshipModel):
-    rel_type: ClassVar[str] = "LIVES_IN"
-
-
-class OriginallyFrom(RelationshipModel):
-    rel_type: ClassVar[str] = "ORIGINALLY_FROM"
-
-
-class HasReligiousView(RelationshipModel):
-    rel_type: ClassVar[str] = "HAS_RELIGIOUS_VIEW"
-
-
-class HasEducationLevel(RelationshipModel):
-    rel_type: ClassVar[str] = "HAS_EDUCATION_LEVEL"
-
-
-class HasTheGender(RelationshipModel):
-    rel_type: ClassVar[str] = "HAS_THE_GENDER"
-
-
-class LevelOfInvolvement(RelationshipModel):
-    rel_type: ClassVar[str] = "LEVEL_OF_INVOLVEMENT"
-    level: Optional[str] = None
+    return Relationship(
+        subject=subj_node,
+        predicate=predicate,
+        object=obj_node
+    )
