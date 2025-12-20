@@ -1,235 +1,388 @@
-# 🚀 Quick Start Guide - Knowledge Graph Filters
+# Quick Start Guide
 
-## Installation
+Get the Oahu Community Knowledge Graph up and running in 5 minutes.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Python 3.8 or higher** installed
+- **Neo4j Database** installed and running
+- **Anthropic API Key** (for AI features)
+- **Git** (optional, for cloning)
+
+## Step 1: Install Python Dependencies
 
 ```bash
-# Install dependencies
+# Install core dependencies
+pip install fastapi uvicorn dash python-fasthtml pandas networkx neo4j
+
+# Install visualization and AI libraries
+pip install plotly sentence-transformers anthropic
+
+# Install document processing (optional)
+pip install --break-system-packages python-pptx openpyxl python-docx
+```
+
+## Step 2: Set Up Neo4j
+
+### Install Neo4j
+
+**macOS (Homebrew):**
+```bash
+brew install neo4j
+brew services start neo4j
+```
+
+**Windows/Linux:**
+Download from https://neo4j.com/download/
+
+### Configure Neo4j
+
+1. Open Neo4j Browser: http://localhost:7474
+2. Set your password (remember this!)
+3. Create a new database or use the default
+
+## Step 3: Configure Application
+
+Edit `config.py` with your credentials:
+
+```python
+# Neo4j Configuration
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_USER = "neo4j"
+NEO4J_PASSWORD = "your_password_here"  # Replace with your Neo4j password
+
+# Anthropic API Configuration
+ANTHROPIC_API_KEY = "sk-ant-api03-..."  # Replace with your Anthropic API key
+```
+
+**Get Anthropic API Key:**
+1. Visit https://console.anthropic.com/
+2. Sign up or log in
+3. Navigate to API Keys
+4. Create a new key
+5. Copy and paste into config.py
+
+## Step 4: Load Data (First Time Only)
+
+If you have survey data to load:
+
+```bash
+# Load data into Neo4j
+python scripts/kg_ingest.py
+```
+
+**Note:** This step is optional if Neo4j already has data loaded.
+
+## Step 5: Start the Application
+
+```bash
+python main.py
+```
+
+You should see:
+
+```
+Loading data from Neo4j...
+Loaded 847 triples
+Extracted filter values
+
+Initializing Neo4j RAG system...
+  ✓ Connected to Neo4j successfully
+  ✓ Using existing embeddings from Neo4j
+
+Creating Dash application...
+Dash app mounted at /dash/
+
+Creating FastHTML pages...
+FastHTML pages mounted at /
+
+======================================================================
+Oahu Community Knowledge Graph - FULL HYBRID
+   FastAPI + FastHTML + Dash
+======================================================================
+
+Access Points:
+   Landing Page (FastHTML): http://localhost:8000/
+   About (FastHTML):        http://localhost:8000/about
+   Dash App:                http://localhost:8000/dash/
+   API Root:                http://localhost:8000/api
+   API Filters:             http://localhost:8000/api/filters
+   API Docs (Swagger):      http://localhost:8000/docs
+
+All three frameworks running on ONE server (port 8000)!
+
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+## Step 6: Access the Application
+
+Open your browser and visit:
+
+### Landing Page
+http://localhost:8000/
+
+Features:
+- Hero section with background image
+- Project overview
+- Quick navigation
+
+### Dashboard
+http://localhost:8000/dash/
+
+Features:
+- Interactive network visualization
+- 18 different filter options
+- Multiple graph layouts
+- AI Search Agent
+- Real-time statistics
+
+### About Page
+http://localhost:8000/about
+
+Features:
+- System architecture diagrams
+- Technology stack details
+- Feature descriptions
+
+### API Documentation
+http://localhost:8000/docs
+
+Features:
+- Interactive Swagger UI
+- Test API endpoints
+- View request/response schemas
+
+## Quick Test
+
+### Test the Dashboard
+
+1. Go to http://localhost:8000/dash/
+2. Select a community (e.g., "Surfing")
+3. Click "Update Graph"
+4. Explore the network visualization
+
+### Test the AI Search
+
+1. In the dashboard, click "AI Search Agent" tab
+2. Ask: "What communities do rock climbers join?"
+3. Wait for the AI-powered response
+4. See semantic search in action
+
+### Test the API
+
+```bash
+# Get available filters
+curl http://localhost:8000/api/filters
+
+# Should return JSON with all filter values
+```
+
+## Common Issues & Solutions
+
+### Issue: Neo4j Connection Error
+
+**Error Message:**
+```
+neo4j.exceptions.AuthError: authentication failure
+```
+
+**Solution:**
+1. Verify Neo4j is running: http://localhost:7474
+2. Check password in config.py matches Neo4j password
+3. Test connection:
+```bash
+python -c "from neo4j import GraphDatabase; driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'your_password')); driver.verify_connectivity(); print('Connected!')"
+```
+
+### Issue: Port 8000 Already in Use
+
+**Error Message:**
+```
+OSError: [Errno 48] Address already in use
+```
+
+**Solution:**
+```bash
+# Find process using port 8000
+lsof -i :8000
+
+# Kill the process
+kill -9 <PID>
+
+# Or use a different port in main.py
+uvicorn.run(app, host="0.0.0.0", port=8001)
+```
+
+### Issue: Module Not Found
+
+**Error Message:**
+```
+ModuleNotFoundError: No module named 'xxx'
+```
+
+**Solution:**
+```bash
+# Install missing module
+pip install xxx
+
+# Or reinstall all dependencies
 pip install -r requirements.txt
-
-# Configure your Neo4j credentials in config.py
-# Then run the app
-python app.py
 ```
 
-## Using the Filters
+### Issue: No Data in Dashboard
 
-### 🏘️ Community Filter
-**What it does**: Shows nodes associated with specific community activities
-
-**Example queries**:
-- "Show me everyone involved in Acroyoga"
-- "Compare Surfing and Rock Climbing communities"
-- "Find overlap between Fire Spinning and Spiritual communities"
-
-**How to use**:
-1. Click the Community dropdown
-2. Select one or more communities (e.g., "Acroyoga", "Surfing")
-3. Graph updates to show only selected communities and their connections
-
----
-
-### 📍 Location Filter
-**What it does**: Shows nodes based on where people live or are originally from
-
-**Example queries**:
-- "Who lives in Honolulu?"
-- "Show people from California"
-- "Compare North Shore vs Central Oahu residents"
-
-**How to use**:
-1. Click the Location dropdown
-2. Select locations (e.g., "Honolulu (Diamond Head...)")
-3. See geographic distribution of communities
-
----
-
-### 🙏 Religion Filter
-**What it does**: Shows nodes based on religious views
-
-**Example queries**:
-- "Show Christian community members"
-- "Compare spiritual vs religious practitioners"
-- "Find agnostic/atheist participants"
-
-**How to use**:
-1. Click the Religion dropdown
-2. Select religious views (e.g., "Christian", "Spiritual")
-3. Explore religious diversity in communities
-
----
-
-### 🎓 Education Filter
-**What it does**: Shows nodes based on education level
-
-**Example queries**:
-- "Who has graduate degrees?"
-- "Show bachelor's degree holders"
-- "Compare education across communities"
-
-**How to use**:
-1. Click the Education dropdown
-2. Select education levels
-3. Analyze educational backgrounds
-
----
-
-### 👤 Gender Filter
-**What it does**: Shows nodes based on gender
-
-**Example queries**:
-- "Show female participants"
-- "Compare male vs female community involvement"
-- "Gender distribution in specific activities"
-
-**How to use**:
-1. Click the Gender dropdown
-2. Select "Male" and/or "Female"
-3. Explore gender dynamics
-
----
-
-### 🏳️‍🌈 Sexuality Filter
-**What it does**: Shows nodes associated with LGBTQ communities
-
-**Example queries**:
-- "Show LGBTQ-associated communities"
-- "Which activities have LGBTQ presence?"
-
-**How to use**:
-1. Click the Sexuality dropdown
-2. Select "LGBTQ"
-3. See LGBTQ community connections
-
----
-
-## 🎯 Pro Tips
-
-### Combining Filters
-Filters work together with AND logic:
-- Gender: "Female" + Location: "Honolulu" = Female residents of Honolulu
-- Community: "Surfing" + Education: "Bachelor's" = Surfers with bachelor's degrees
-
-### Clearing Filters
-- Click the ❌ on individual selections to remove them
-- Or clear entire dropdown to see all data
-
-### Understanding Results
-- **Nodes**: Number of people/entities matching your filters
-- **Edges**: Number of relationships between them
-- **Density**: How interconnected the filtered network is (0-1)
-- **Avg Degree**: Average number of connections per node
-
-### Query Feature
-Still works alongside filters! Type natural language questions like:
-- "What is the relationship between Acroyoga and Fire Spinning?"
-- "How are Surfing and LGBTQ connected?"
-
----
-
-## 📊 Common Use Cases
-
-### 1. Community Exploration
-**Goal**: Understand a specific community
-```
-1. Select community in Community filter
-2. Leave other filters empty
-3. Explore all aspects of that community
+**Solution:**
+1. Verify Neo4j has data:
+```bash
+# Open Neo4j Browser: http://localhost:7474
+# Run query: MATCH (n) RETURN count(n)
 ```
 
-### 2. Demographic Analysis
-**Goal**: Compare demographics across communities
-```
-1. Select multiple communities
-2. Add Gender or Education filters
-3. Compare distributions
+2. If no data, run ingestion:
+```bash
+python scripts/kg_ingest.py
 ```
 
-### 3. Geographic Patterns
-**Goal**: See how location affects community participation
-```
-1. Select one or more locations
-2. View which communities are active there
-3. Compare with other locations
-```
+### Issue: AI Search Not Working
 
-### 4. Intersection Analysis
-**Goal**: Find specific intersections
-```
-1. Select values in multiple filter categories
-2. Example: Female + Spiritual + Honolulu + Graduate degree
-3. Find nodes matching all criteria
-```
+**Possible Causes:**
+1. Missing Anthropic API key in config.py
+2. API key invalid or expired
+3. No vector indexes in Neo4j
 
-### 5. Diversity Assessment
-**Goal**: Understand diversity in a community
-```
-1. Select a community
-2. Check the resulting religion/education/gender mix
-3. Compare with other communities
+**Solution:**
+```bash
+# Verify API key is set
+grep ANTHROPIC_API_KEY config.py
+
+# Reindex data (creates vector embeddings)
+# In Python shell:
+from neo4j_rag import get_neo4j_rag
+import pandas as pd
+rag = get_neo4j_rag()
+survey_df = pd.read_csv('data/data_preprcd_12_18.csv')
+rag.reindex_all(survey_df)
 ```
 
----
+## Next Steps
 
-## 🐛 Troubleshooting
+### Customize Your Dashboard
 
-**Problem**: No results after filtering
-- **Solution**: You may have selected incompatible filters. Try removing some.
+1. Edit `dash_app.py` to modify layout
+2. Add custom filters
+3. Change color schemes
+4. Add new visualizations
 
-**Problem**: Filter dropdown is empty
-- **Solution**: Check that your Neo4j data contains the relevant predicates.
+### Add Custom Pages
 
-**Problem**: Graph is too cluttered
-- **Solution**: Use more specific filters or select fewer nodes in the Advanced Filters section.
+1. Edit `pages.py` to add routes
+2. Use FastHTML components
+3. Add to navigation menu
 
-**Problem**: Filters are slow
-- **Solution**: Your dataset may be large. Try filtering by predicates first to reduce data.
+### Extend the API
 
----
+1. Edit `api_routes.py`
+2. Add new endpoints
+3. Update Swagger documentation
 
-## 🎓 Learning Exercise
+## Performance Tips
 
-Try this sequence to learn the system:
+### Speed Up Data Loading
 
-1. **Start broad**: Select just "Female" in Gender
-   - Notice how many female nodes appear
-   
-2. **Add location**: Now select "Honolulu..."
-   - See how the network narrows
-   
-3. **Add community**: Select "Surfing"
-   - Find female surfers in Honolulu
-   
-4. **Add education**: Select "Bachelor s degree"
-   - Find female surfers in Honolulu with bachelor's degrees
-   
-5. **Explore connections**: Look at what else these nodes are connected to
+```python
+# In data_loader.py, use batching for large datasets
+# Increase Neo4j connection pool size
+```
 
----
+### Optimize Vector Search
 
-## 💾 Data Notes
+```python
+# In neo4j_rag.py, adjust n_results parameter
+# Lower values = faster queries
+rag.retrieve_relevant_context(query, n_results=5)  # Instead of 10
+```
 
-**Filter values are extracted from your Neo4j database**:
-- If a category seems empty, check your data
-- Values update when you reload the app
-- Case-sensitive matching (as stored in database)
+### Cache Filter Values
 
-**Predicates used**:
-- Community: `also_involved_in`, `associated_with`, `level_of_involvement`
-- Location: `lives_in`, `originally_from`
-- Religion: `has_religious_view`
-- Education: `has_education_level`
-- Gender: `has_the_gender`
-- Sexuality: `associated_with` (containing "LGBTQ")
+```python
+# Filter values are cached automatically
+# Clear cache by restarting the application
+```
 
----
+## Resources
 
-## 📞 Need Help?
+### Documentation
+- **README.md** - Full project documentation
+- **PROJECT_SUMMARY.md** - High-level project summary
+- **UML_CLASS_DIAGRAM.md** - Architecture diagrams
 
-- Check README.md for detailed documentation
-- See ARCHITECTURE.md for technical details
-- Review your Neo4j data structure
-- Verify config.py has correct credentials
+### Code Examples
+- See `dash_app.py` for dashboard examples
+- See `api_routes.py` for API examples
+- See `neo4j_rag.py` for RAG implementation
 
----
+### Getting Help
 
-**Happy exploring! 🌺**
+1. Check error messages carefully
+2. Review troubleshooting section above
+3. Consult project documentation
+4. Check Neo4j logs: `neo4j.log`
+5. Enable debug mode in main.py
+
+## Security Notes
+
+### Production Deployment
+
+**Important:** Before deploying to production:
+
+1. **Change default passwords**
+   - Neo4j admin password
+   - Any default credentials
+
+2. **Secure API keys**
+   - Use environment variables
+   - Never commit keys to Git
+   - Rotate keys regularly
+
+3. **Enable authentication**
+   - Add user authentication to dashboard
+   - Protect API endpoints
+   - Use HTTPS
+
+4. **Configure firewall**
+   - Restrict Neo4j port (7687)
+   - Only expose port 8000 if needed
+   - Use reverse proxy (nginx/Apache)
+
+### Environment Variables (Recommended)
+
+Instead of hardcoding in config.py:
+
+```bash
+# .env file
+NEO4J_PASSWORD=your_password
+ANTHROPIC_API_KEY=your_key
+
+# Load in config.py
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD')
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+```
+
+## Summary
+
+You should now have:
+- A running application on http://localhost:8000
+- Interactive dashboard with network visualizations
+- AI-powered search capability
+- RESTful API endpoints
+- Working Neo4j connection
+
+**Congratulations! You're ready to explore Oahu community connections.**
+
+For detailed information, see README.md and PROJECT_SUMMARY.md.
